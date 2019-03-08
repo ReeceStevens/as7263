@@ -17,27 +17,28 @@ pub struct VirtualRegister {
     size: u8,
 }
 
-const HWVersion: VirtualRegister = VirtualRegister { address: 0x00, size: 2 };
-const FWVersion: VirtualRegister = VirtualRegister { address: 0x02, size: 2 };
-const ControlSetup: VirtualRegister = VirtualRegister { address: 0x04, size: 1 };
-const INT_T: VirtualRegister = VirtualRegister { address: 0x05, size: 1 };
-const DeviceTemp: VirtualRegister = VirtualRegister { address: 0x06, size: 1 };
-const LEDControl: VirtualRegister = VirtualRegister { address: 0x07, size: 1 };
+pub const HWVersion: VirtualRegister = VirtualRegister { address: 0x00, size: 2 };
+pub const FWVersion: VirtualRegister = VirtualRegister { address: 0x02, size: 2 };
+pub const ControlSetup: VirtualRegister = VirtualRegister { address: 0x04, size: 1 };
+pub const INT_T: VirtualRegister = VirtualRegister { address: 0x05, size: 1 };
+pub const DeviceTemp: VirtualRegister = VirtualRegister { address: 0x06, size: 1 };
+pub const LEDControl: VirtualRegister = VirtualRegister { address: 0x07, size: 1 };
 
-const R_Raw: VirtualRegister = VirtualRegister { address: 0x08, size: 2 };
-const S_Raw: VirtualRegister = VirtualRegister { address: 0x0a, size: 2 };
-const T_Raw: VirtualRegister = VirtualRegister { address: 0x0c, size: 2 };
-const U_Raw: VirtualRegister = VirtualRegister { address: 0x0e, size: 2 };
-const V_Raw: VirtualRegister = VirtualRegister { address: 0x10, size: 2 };
-const W_Raw: VirtualRegister = VirtualRegister { address: 0x12, size: 2 };
+pub const R_Raw: VirtualRegister = VirtualRegister { address: 0x08, size: 2 };
+pub const S_Raw: VirtualRegister = VirtualRegister { address: 0x0a, size: 2 };
+pub const T_Raw: VirtualRegister = VirtualRegister { address: 0x0c, size: 2 };
+pub const U_Raw: VirtualRegister = VirtualRegister { address: 0x0e, size: 2 };
+pub const V_Raw: VirtualRegister = VirtualRegister { address: 0x10, size: 2 };
+pub const W_Raw: VirtualRegister = VirtualRegister { address: 0x12, size: 2 };
 
-const R_Cal: VirtualRegister = VirtualRegister { address: 0x14, size: 4 };
-const S_Cal: VirtualRegister = VirtualRegister { address: 0x18, size: 4 };
-const T_Cal: VirtualRegister = VirtualRegister { address: 0x1c, size: 4 };
-const U_Cal: VirtualRegister = VirtualRegister { address: 0x20, size: 4 };
-const V_Cal: VirtualRegister = VirtualRegister { address: 0x24, size: 4 };
-const W_Cal: VirtualRegister = VirtualRegister { address: 0x28, size: 4 };
+pub const R_Cal: VirtualRegister = VirtualRegister { address: 0x14, size: 4 };
+pub const S_Cal: VirtualRegister = VirtualRegister { address: 0x18, size: 4 };
+pub const T_Cal: VirtualRegister = VirtualRegister { address: 0x1c, size: 4 };
+pub const U_Cal: VirtualRegister = VirtualRegister { address: 0x20, size: 4 };
+pub const V_Cal: VirtualRegister = VirtualRegister { address: 0x24, size: 4 };
+pub const W_Cal: VirtualRegister = VirtualRegister { address: 0x28, size: 4 };
 
+const I2C_ADDR: u8 = 0x49;
 const RX_VALID: u8 = 0x01;
 const TX_VALID: u8 = 0x02;
 const WRITE_FLAG: u8 = 0x80;
@@ -72,7 +73,7 @@ pub struct Config {
     integration_time: u8,
 }
 
-const DEFAULT_CONFIG: Config = Config {
+pub const DEFAULT_CONFIG: Config = Config {
     enable_interrupts: false,
     gain: Gain::Gain1x,
     bank: BankMode::OneShot,
@@ -86,7 +87,17 @@ pub struct As7263<I2C: Write + Read> {
 impl<I2C, E> As7263<I2C>
     where I2C: Write<Error = E> + Read<Error = E>
 {
-    fn apply_config(&mut self, config: Config) -> Result<(), E> {
+    pub fn new(i2c: I2C) -> Self {
+        As7263 { i2c }
+    }
+
+    pub fn self_check(&mut self) -> Result<bool, E> {
+        let expected_hardware_version: u16 = 0x3F40;
+        let actual_hardware_version = self.read(HWVersion)? as u16;
+        Ok(expected_hardware_version == actual_hardware_version)
+    }
+
+    pub fn apply_config(&mut self, config: Config) -> Result<(), E> {
         let control_setup_mask: u8 = (config.bank as u8) << 2
                                    | if config.enable_interrupts { 1 } else { 0 } << 6
                                    | (config.gain as u8) << 4;
@@ -96,7 +107,7 @@ impl<I2C, E> As7263<I2C>
         Ok(())
     }
 
-    fn get_spectral_measurement(&mut self) -> Result<SpectralResponse, E> {
+    pub fn get_spectral_measurement(&mut self) -> Result<SpectralResponse, E> {
         Ok(SpectralResponse {
             r: f32::from_bits(self.read(R_Cal)?),
             s: f32::from_bits(self.read(S_Cal)?),
@@ -107,7 +118,7 @@ impl<I2C, E> As7263<I2C>
         })
     }
 
-    fn oneshot_measurement(&mut self) -> Result<SpectralResponse, E> {
+    pub fn oneshot_measurement(&mut self) -> Result<SpectralResponse, E> {
         let oneshot_request = 0x01;
         let mut existing_config = self.read(ControlSetup)? as u8;
         self.write(ControlSetup, existing_config | oneshot_request)?;
@@ -118,41 +129,50 @@ impl<I2C, E> As7263<I2C>
         self.get_spectral_measurement()
     }
 
+    pub fn write(&mut self, virtual_reg: VirtualRegister, data: u8) -> Result<(), E> {
+        self.access_virtual_address(virtual_reg.address, true)?;
+        while !self.write_ready()? {}
+        self.physical_write(PhysicalRegisters::Write, data)?;
+        Ok(())
+    }
+
+    pub fn read(&mut self, virtual_reg: VirtualRegister) -> Result<u32, E> {
+        let mut result: u32 = 0;
+        for i in 0..virtual_reg.size {
+            self.access_virtual_address(virtual_reg.address + i, false)?;
+            while !self.read_ready()? {}
+            let buffer = self.physical_read(PhysicalRegisters::Read)?;
+            result |= (buffer as u32) << ((virtual_reg.size - 1 - i) * 8);
+        }
+        Ok(result)
+    }
+
     fn write_ready(&mut self) -> Result<bool, E> {
-        let status: u8 = TX_VALID;
-        self.i2c.read(PhysicalRegisters::Status as u8, &mut [status])?;
+        let status = self.physical_read(PhysicalRegisters::Status)?;
         Ok(status & TX_VALID == 0)
     }
 
     fn read_ready(&mut self) -> Result<bool, E> {
-        let status = 0;
-        self.i2c.read(PhysicalRegisters::Status as u8, &mut [status])?;
+        let status = self.physical_read(PhysicalRegisters::Status)?;
         Ok(status & RX_VALID != 0)
     }
 
     fn access_virtual_address(&mut self, virtual_addr: u8, write: bool) -> Result<(), E> {
         let access_flag = if write { WRITE_FLAG } else { 0x00 };
         while !self.write_ready()? {}
-        self.i2c.write(PhysicalRegisters::Write as u8, &[virtual_addr | access_flag])?;
+        self.physical_write(PhysicalRegisters::Write, virtual_addr | access_flag)?;
         Ok(())
     }
 
-    fn write(&mut self, virtual_reg: VirtualRegister, data: u8) -> Result<(), E> {
-        self.access_virtual_address(virtual_reg.address, true)?;
-        while !self.write_ready()? {}
-        self.i2c.write(PhysicalRegisters::Write as u8, &[data])?;
-        Ok(())
+    pub fn physical_read(&mut self, physical_register: PhysicalRegisters) -> Result<u8, E> {
+        self.i2c.write(I2C_ADDR, &[physical_register as u8])?;
+        let mut status = [0];
+        self.i2c.read(I2C_ADDR, &mut status)?;
+        Ok(status[0])
     }
 
-    fn read(&mut self, virtual_reg: VirtualRegister) -> Result<u32, E> {
-        let mut result: u32 = 0;
-        for i in 0..virtual_reg.size {
-            self.access_virtual_address(virtual_reg.address + i, false)?;
-            while !self.read_ready()? {}
-            let buffer: u8 = 0;
-            self.i2c.read(PhysicalRegisters::Read as u8, &mut [buffer])?;
-            result |= (buffer as u32) << (virtual_reg.size - 1 - i);
-        }
-        Ok(result)
+    pub fn physical_write(&mut self, physical_register: PhysicalRegisters, data: u8) -> Result<(), E> {
+        self.i2c.write(I2C_ADDR, &[physical_register as u8, data])?;
+        Ok(())
     }
 }
