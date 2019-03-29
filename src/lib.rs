@@ -43,13 +43,21 @@ const RX_VALID: u8 = 0x01;
 const TX_VALID: u8 = 0x02;
 const WRITE_FLAG: u8 = 0x80;
 
+pub const R_LAMBDA: u32 = 610;
+pub const S_LAMBDA: u32 = 680;
+pub const T_LAMBDA: u32 = 730;
+pub const U_LAMBDA: u32 = 760;
+pub const V_LAMBDA: u32 = 810;
+pub const W_LAMBDA: u32 = 860;
+
+#[derive(Debug)]
 pub struct SpectralResponse {
-    r: f32,
-    s: f32,
-    t: f32,
-    u: f32,
-    v: f32,
-    w: f32,
+    pub r: f32,
+    pub s: f32,
+    pub t: f32,
+    pub u: f32,
+    pub v: f32,
+    pub w: f32,
 }
 
 pub enum BankMode {
@@ -92,7 +100,7 @@ impl<I2C, E> As7263<I2C>
     }
 
     pub fn self_check(&mut self) -> Result<bool, E> {
-        let expected_hardware_version: u16 = 0x3F40;
+        let expected_hardware_version: u16 = 0x403F;
         let actual_hardware_version = self.read(HWVersion)? as u16;
         Ok(expected_hardware_version == actual_hardware_version)
     }
@@ -119,11 +127,11 @@ impl<I2C, E> As7263<I2C>
     }
 
     pub fn oneshot_measurement(&mut self) -> Result<SpectralResponse, E> {
-        let oneshot_request = 0x01;
+        let oneshot_request = 0x0C;
         let mut existing_config = self.read(ControlSetup)? as u8;
         self.write(ControlSetup, existing_config | oneshot_request)?;
         existing_config = self.read(ControlSetup)? as u8;
-        while existing_config & oneshot_request == 1 {
+        while existing_config & 0x02 == 0 {
             existing_config = self.read(ControlSetup)? as u8;
         }
         self.get_spectral_measurement()
@@ -142,7 +150,7 @@ impl<I2C, E> As7263<I2C>
             self.access_virtual_address(virtual_reg.address + i, false)?;
             while !self.read_ready()? {}
             let buffer = self.physical_read(PhysicalRegisters::Read)?;
-            result |= (buffer as u32) << ((virtual_reg.size - 1 - i) * 8);
+            result |= (buffer as u32) << ((virtual_reg.size - i - 1) * 8);
         }
         Ok(result)
     }
