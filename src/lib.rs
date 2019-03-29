@@ -4,6 +4,8 @@
 extern crate embedded_hal as hal;
 extern crate nb;
 
+use core::fmt::Debug;
+
 use hal::blocking::i2c::{Read, Write};
 
 pub enum PhysicalRegisters {
@@ -88,12 +90,13 @@ pub const DEFAULT_CONFIG: Config = Config {
     integration_time: 0x01,
 };
 
-pub struct As7263<I2C: Write + Read> {
+pub struct As7263<I2C: Write<Error = E> + Read<Error = E>, E: Debug> {
     i2c: I2C,
 }
 
-impl<I2C, E> As7263<I2C>
-    where I2C: Write<Error = E> + Read<Error = E>
+impl<I2C, E> As7263<I2C, E>
+    where I2C: Write<Error = E> + Read<Error = E>,
+          E: Debug,
 {
     pub fn new(i2c: I2C) -> Self {
         As7263 { i2c }
